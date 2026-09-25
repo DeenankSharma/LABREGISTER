@@ -1,5 +1,5 @@
-import RPi.GPIO as GPIO
-from RPLCD.gpio import CharLCD
+import pigpio
+from RPLCD.pigpio import CharLCD
 import time
 import requests
 import signal
@@ -8,13 +8,16 @@ import sys
 API_URL = "http://YOUR_BACKEND_IP:3000/api/log"
 SHUTDOWN_URL = "http://YOUR_BACKEND_IP:3000/api/shutdown"
 
-# Switch to BCM mode to bypass the rpi-lgpio Board mode bug
-GPIO.setmode(GPIO.BCM)
+# Connect to local pigpio daemon
+pi = pigpio.pi()
+if not pi.connected:
+    print("Error: pigpio daemon not running. Run 'sudo systemctl start pigpiod'")
+    sys.exit(1)
 
-# Initialize the LCD using standard BCM pins (Translated from physical 11, 13, 15, 16, 18, 22)
+# Initialize the LCD using the pigpio backend and standard BCM pins
 lcd = CharLCD(
+    pi,
     pin_rs=17, pin_e=27, pins_data=[22, 23, 24, 25],
-    numbering_mode=GPIO.BCM,
     cols=16, rows=2,
     dotsize=8
 )
@@ -26,16 +29,15 @@ MATRIX = [
     ['7','8','9','C'],
     ['*','0','#','D']
 ]
-# Translated from physical rows 29, 31, 33, 35
 ROW = [5, 6, 13, 19]
-# Translated from physical cols 37, 32, 36, 38
 COL = [26, 12, 16, 20]
 
 for j in range(4):
-    GPIO.setup(COL[j], GPIO.OUT)
-    GPIO.output(COL[j], 1)
+    pi.set_mode(COL[j], pigpio.OUTPUT)
+    pi.write(COL[j], 1)
 for i in range(4):
-    GPIO.setup(ROW[i], GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    pi.set_mode(ROW[i], pigpio.INPUT)
+    pi.set_pull_up_down(ROW[i], pigpio.PUD_UP)
 
 def graceful_exit(signum, frame):
     lcd.clear()
@@ -45,7 +47,8 @@ def graceful_exit(signum, frame):
     except:
         pass
     lcd.clear()
-    GPIO.cleanup()
+    lcd.close() # Clean up RPLCD pigpio instance
+    pi.stop()   # Disconnect from daemon
     sys.exit(0)
 
 signal.signal(signal.SIGTERM, graceful_exit)
@@ -53,14 +56,14 @@ signal.signal(signal.SIGINT, graceful_exit)
 
 def read_keypad():
     for j in range(4):
-        GPIO.output(COL[j], 0)
+        pi.write(COL[j], 0)
         for i in range(4):
-            if GPIO.input(ROW[i]) == 0:
+            if pi.read(ROW[i]) == 0:
                 time.sleep(0.2) # Debounce
-                while GPIO.input(ROW[i]) == 0: pass
-                GPIO.output(COL[j], 1)
+                while pi.read(ROW[i]) == 0: pass
+                pi.write(COL[j], 1)
                 return MATRIX[i][j]
-        GPIO.output(COL[j], 1)
+        pi.write(COL[j], 1)
     return None
 
 def main():
