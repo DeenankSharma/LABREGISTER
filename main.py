@@ -8,26 +8,28 @@ import sys
 API_URL = "http://YOUR_BACKEND_IP:3000/api/log"
 SHUTDOWN_URL = "http://YOUR_BACKEND_IP:3000/api/shutdown"
 
-# Use Physical Pin numbering based on the provided image
-GPIO.setmode(GPIO.BOARD)
+# Switch to BCM mode to bypass the rpi-lgpio Board mode bug
+GPIO.setmode(GPIO.BCM)
 
-# Initialize the LCD using Physical Board Pins
+# Initialize the LCD using standard BCM pins (Translated from physical 11, 13, 15, 16, 18, 22)
 lcd = CharLCD(
-    pin_rs=11, pin_e=13, pins_data=[15, 16, 18, 22],
-    numbering_mode=GPIO.BOARD,
+    pin_rs=17, pin_e=27, pins_data=[22, 23, 24, 25],
+    numbering_mode=GPIO.BCM,
     cols=16, rows=2,
     dotsize=8
 )
 
-# Keypad setup using Physical Board Pins
+# Keypad setup using standard BCM pins
 MATRIX = [
     ['1','2','3','A'],
     ['4','5','6','B'],
     ['7','8','9','C'],
     ['*','0','#','D']
 ]
-ROW = [29, 31, 33, 35]
-COL = [37, 32, 36, 38]
+# Translated from physical rows 29, 31, 33, 35
+ROW = [5, 6, 13, 19]
+# Translated from physical cols 37, 32, 36, 38
+COL = [26, 12, 16, 20]
 
 for j in range(4):
     GPIO.setup(COL[j], GPIO.OUT)
