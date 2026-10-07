@@ -8,13 +8,12 @@ import sys
 API_URL = "http://YOUR_BACKEND_IP:3000/api/log"
 SHUTDOWN_URL = "http://YOUR_BACKEND_IP:3000/api/shutdown"
 
-# Connect to local pigpio daemon
 pi = pigpio.pi()
 if not pi.connected:
     print("Error: pigpio daemon not running. Run 'sudo systemctl start pigpiod'")
     sys.exit(1)
 
-# Initialize the LCD using the pigpio backend and standard BCM pins
+# Initialize LCD
 lcd = CharLCD(
     pi,
     pin_rs=17, pin_e=27, pins_data=[22, 23, 24, 25],
@@ -22,7 +21,7 @@ lcd = CharLCD(
     dotsize=8
 )
 
-# Keypad setup using standard BCM pins
+# Keypad setup
 MATRIX = [
     ['1','2','3','A'],
     ['4','5','6','B'],
@@ -47,8 +46,8 @@ def graceful_exit(signum, frame):
     except:
         pass
     lcd.clear()
-    lcd.close() # Clean up RPLCD pigpio instance
-    pi.stop()   # Disconnect from daemon
+    lcd.close()
+    pi.stop()
     sys.exit(0)
 
 signal.signal(signal.SIGTERM, graceful_exit)
@@ -59,12 +58,18 @@ def read_keypad():
         pi.write(COL[j], 0)
         for i in range(4):
             if pi.read(ROW[i]) == 0:
-                time.sleep(0.2) # Debounce
-                while pi.read(ROW[i]) == 0: pass
-                pi.write(COL[j], 1)
-                return MATRIX[i][j]
+                time.sleep(0.05) # Brief debounce
+                if pi.read(ROW[i]) == 0: # Confirm press
+                    while pi.read(ROW[i]) == 0: pass # Wait for release
+                    pi.write(COL[j], 1)
+                    return MATRIX[i][j]
         pi.write(COL[j], 1)
     return None
+
+def update_display(text):
+    lcd.cursor_pos = (1, 0)
+    # Pad with spaces to overwrite old characters without clearing the screen
+    lcd.write_string(text.ljust(16))
 
 def main():
     current_input = ""
@@ -75,31 +80,33 @@ def main():
         key = read_keypad()
         if key:
             if key == '#': # Enter
-                lcd.clear()
-                lcd.write_string('Processing...')
-                try:
-                    res = requests.post(API_URL, json={"enr": current_input}, timeout=5)
-                    msg = res.json().get('message', 'Success')
+                if len(current_input) > 0:
                     lcd.clear()
-                    lcd.write_string(msg)
-                except requests.exceptions.RequestException:
+                    lcd.write_string('Processing...')
+                    try:
+                        res = requests.post(API_URL, json={"enr": current_input}, timeout=5)
+                        msg = res.json().get('message', 'Success')
+                        lcd.clear()
+                        lcd.write_string(msg)
+                    except requests.exceptions.RequestException:
+                        lcd.clear()
+                        lcd.write_string('Network Error!')
+                    
+                    time.sleep(2)
+                    current_input = ""
                     lcd.clear()
-                    lcd.write_string('Network Error!')
-                
-                time.sleep(2)
-                current_input = ""
-                lcd.clear()
-                lcd.write_string('Enter ENR:')
+                    lcd.write_string('Enter ENR:')
             
-            elif key == '*': # Backspace/Clear
-                current_input = ""
-                lcd.clear()
-                lcd.write_string('Enter ENR:')
+            elif key == '*': # Backspace (Delete last character)
+                if len(current_input) > 0:
+                    current_input = current_input[:-1]
+                    update_display(current_input)
             
-            else:
-                current_input += key
-                lcd.cursor_pos = (1, 0)
-                lcd.write_string(current_input)
+            else: # Standard character input
+                if len(current_input) < 8: # Lock to 8 digits
+                    current_input += key
+                    update_display(current_input)
+                    
         time.sleep(0.05)
 
 if __name__ == '__main__':
